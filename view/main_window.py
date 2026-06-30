@@ -37,12 +37,10 @@ class BankView(tk.Tk):
         self.style.configure("TNotebook", tabposition="ne", background="#f0f0f0")
         self.style.configure("TNotebook.Tab", font=("Samim", 11))
 
-        # گشادتر کردن ردیف‌ها و پررنگ کردن متن تیتر جدول
         self.style.configure("Treeview", rowheight=30, font=("Samim", 11))
         self.style.configure("Treeview.Heading", font=("Samim", 11, "bold"), background="#e0e0e0")
 
     def wire_controllers(self, auth_ctrl, customers_ctrl, register_ctrl, transfer_ctrl, deposit_withdraw_ctrl):
-        """تزریق مستقل ساب‌کنترلرها به لایه گرافیکی (سیستم هماهنگ‌کننده دستوری)"""
         self.auth_controller = auth_ctrl
         self.customers_controller = customers_ctrl
         self.register_controller = register_ctrl
@@ -85,7 +83,6 @@ class BankView(tk.Tk):
         self.nb = ttk.Notebook(self)
         self.nb.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # هر تب فقط و فقط نمونه کنترلر مرتبط با حیطه مسئولیت خودش را دریافت می‌کند
         self.dashboard_tab = DashboardTab(self.nb, self.customers_controller)
         self.customers_tab = CustomersTab(self.nb, self.customers_controller)
         self.register_tab = RegisterTab(self.nb, self.register_controller)
@@ -99,10 +96,19 @@ class BankView(tk.Tk):
         self.nb.add(self.dashboard_tab, text=" داشبورد ")
         self.nb.select(self.dashboard_tab)
 
-        self.nb.bind("<<NotebookTabChanged>>", lambda e: self.customers_controller.refresh_dashboard_data())
+        # اجرای خودکار رفرش داشبورد و جدولِ گزارش‌ها در لحظه لود شدن و جابجایی بین تب‌ها
+        self.nb.bind("<<NotebookTabChanged>>", self._on_tab_change)
+        self._on_tab_change()
 
         self.status = ttk.Label(self, text="آماده عملیات...", foreground="green")
         self.status.pack(side="bottom", fill="x", pady=5)
+
+    def _on_tab_change(self, event=None):
+        """متد هوشمند برای آپدیت خودکار تمام داده‌ها هنگام جابجایی تب‌ها"""
+        if self.customers_controller:
+            self.customers_controller.refresh_dashboard_data()
+            if hasattr(self, 'customers_tab'):
+                self.customers_controller.handle_customer_search(self.customers_tab.v_q.get())
 
     def switch_to_login(self):
         self.frame_top_bar.pack_forget()
@@ -132,7 +138,7 @@ class BankView(tk.Tk):
 
     def show_history_window(self, acc, records):
         w = tk.Toplevel(self)
-        w.title(f"تاریخچه حساب {acc}");
+        w.title(f"تاریخچه حساب {acc}")
         w.geometry("850x450")
         txt = tk.Text(w, font=("Samim", 10), padx=12, pady=12, bg="#fbfbfb", fg="#1a1a1a")
         txt.pack(expand=True, fill="both")
