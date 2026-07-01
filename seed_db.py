@@ -34,6 +34,7 @@ def seed_database():
 
     print("👥 Creating 12 customers with historical creation dates...")
     account_balances = {}
+    account_statuses = {}
 
     for name, nid, phone, acc_num, status in users_data:
         # تاریخ افتتاح حساب: بین ۳۰ تا ۹۰ روز پیش
@@ -43,11 +44,11 @@ def seed_database():
         user_id = repo.add_customer(name, nid, phone, created_at)
         pin_hash, salt = hash_pin("1234")
         repo.add_account(acc_num, user_id, pin_hash, salt, 0, status, created_at)
-        account_balances[acc_num] = 0  # موجودی اولیه در حافظه برای محاسبه دقیق
+        account_balances[acc_num] = 0
+        account_statuses[acc_num] = status
 
     print("💸 Generating massive historical data (10-20 tx per account)...")
 
-    # ۳. تزریق مستقیم اطلاعات به دیتابیس برای دستکاری زمان (Spoofing)
     with repo._get_connection() as conn:
         cursor = conn.cursor()
 
@@ -56,14 +57,13 @@ def seed_database():
             num_tx = random.randint(10, 20)
 
             for i in range(num_tx):
-                # تاریخ تراکنش: رندوم در ۳۰ روز گذشته
-                days_ago = random.randint(1, 29)
+                # تاریخ تراکنش: رندوم در ۲ تا ۲۹ روز گذشته (روز اول را برای تسویه نگه می‌داریم)
+                days_ago = random.randint(2, 29)
                 time_offset = timedelta(days=days_ago, hours=random.randint(1, 23), minutes=random.randint(1, 59))
                 tx_date = (datetime.now() - time_offset).strftime("%Y-%m-%d %H:%M:%S")
 
-                # برای جلوگیری از منفی شدن موجودی، اگر پول کم بود حتماً واریز می‌کنیم
                 if account_balances[acc_num] < 500000 or random.random() < 0.4:
-                    amt = random.randint(5, 50) * 100000  # مبلغ بین 500 هزار تا 5 میلیون
+                    amt = random.randint(5, 50) * 100000
                     account_balances[acc_num] += amt
                     cursor.execute('''
                                    INSERT INTO Transactions (account_number, transaction_type, amount,
@@ -83,11 +83,9 @@ def seed_database():
                                          "برداشت نقدی از حساب"))
 
                 else:
-                    # انتقال وجه رندوم به یک حساب دیگر
                     target = random.choice([a for a in account_balances.keys() if a != acc_num])
                     amt = random.randint(1, 5) * 100000
 
-                    # کسر از مبدأ
                     account_balances[acc_num] -= amt
                     cursor.execute('''
                                    INSERT INTO Transactions (account_number, transaction_type, amount,
@@ -96,7 +94,6 @@ def seed_database():
                                    ''', (acc_num, "انتقال (خروجی)", amt, account_balances[acc_num], tx_date,
                                          f"انتقال وجه به {target}"))
 
-                    # واریز به مقصد
                     account_balances[target] += amt
                     cursor.execute('''
                                    INSERT INTO Transactions (account_number, transaction_type, amount,
@@ -105,13 +102,26 @@ def seed_database():
                                    ''', (target, "انتقال (ورودی)", amt, account_balances[target], tx_date,
                                          f"واریز از حساب {acc_num}"))
 
-        # ۴. آپدیت کردن موجودی نهایی تمام حساب‌ها در دیتابیس
+        # 🎯 حل باگ منطقی: تسویه حساب برای حساب‌های بسته
+        for acc_num, status in account_statuses.items():
+            if status == "بسته" and account_balances[acc_num] > 0:
+                # یک روز پیش حساب را صفر می‌کنیم تا قانون رعایت شود
+                closing_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+                amt = account_balances[acc_num]
+                account_balances[acc_num] = 0
+                cursor.execute('''
+                               INSERT INTO Transactions (account_number, transaction_type, amount, resulting_balance,
+                                                         timestamp, description)
+                               VALUES (?, ?, ?, ?, ?, ?)
+                               ''', (acc_num, "برداشت نقدی", amt, 0, closing_date, "تسویه حساب کامل جهت ابطال حساب"))
+
+        # آپدیت کردن موجودی نهایی تمام حساب‌ها
         for acc_num, final_balance in account_balances.items():
             cursor.execute('UPDATE Accounts SET balance = ? WHERE account_number = ?', (final_balance, acc_num))
 
         conn.commit()
 
-    print("\n✅ Database seeding completed successfully with rich historical data!")
+    print("\n✅ Database seeding completed! Domain logic respected (Closed accounts have 0 balance).")
     print("   🔑 Admin Login -> User: admin | Pass: 12345")
     print("   💳 Default PIN for all test accounts: 1234")
 
