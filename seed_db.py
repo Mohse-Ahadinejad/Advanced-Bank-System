@@ -1,78 +1,72 @@
-import sqlite3
-import random
-from datetime import datetime, timedelta
 import os
-import sys
-
-# اضافه کردن مسیر ریشه پروژه برای شناسایی ماژول‌ها
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from utils.security_utils import hash_text
-
-DB_NAME = "fund_database.db"
+from model.repository import BankRepository
+from model.account import Account
+from model.transaction import Deposit, Withdrawal, TransferOut, TransferIn
+from utils.security_utils import hash_pin
 
 
 def seed_database():
-    print("🌱 در حال تولید داده‌های تستی برای سامانه بانکی...")
+    db_name = "fund_database.db"
 
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
+    # ۱. پاک کردن دیتابیس قدیمی برای جلوگیری از تداخل اطلاعات و تست تمیز
+    if os.path.exists(db_name):
+        os.remove(db_name)
+        print("🗑️  Old database removed.")
 
-    # پاکسازی داده‌های قبلی مشتریان برای جلوگیری از تداخل (ادمین پاک نمی‌شود)
-    cursor.execute("DELETE FROM Transactions")
-    cursor.execute("DELETE FROM Accounts")
-    cursor.execute("DELETE FROM Users")
+    # با صدا زدن ریپازیتوری، دیتابیس جدید به همراه مایگریشن و ادمین امن ساخته می‌شود
+    repo = BankRepository(db_name=db_name)
+    print("✨ New database and schema initialized.")
 
-    names = [
-        "علی احمدی", "مریم رضایی", "حسین کریمی", "فاطمه موسوی", "رضا رحمانی",
-        "سارا نجفی", "محمد حسینی", "زهرا قاسمی", "امیر نوری", "ندا طاهری"
+    # --- ۲. ساخت مشتریان و حساب‌های تستی ---
+    # ساختار: (نام، کدملی، موبایل، شماره حساب، موجودی اولیه، وضعیت)
+    users = [
+        ("علی احمدی", "1111111111", "09121111111", "10000001", 5000000, "فعال"),
+        ("مریم رضایی", "2222222222", "09122222222", "10000002", 1500000, "فعال"),
+        ("سارا کریمی", "3333333333", "09123333333", "10000003", 0, "مسدود")
     ]
 
-    # تنظیم یک رمز عبور پیش‌فرض برای تمام کارت‌های تستی جهت راحتی در تست
-    default_pin_hash = hash_text("1234")
-    default_salt = "seed_salt_xyz"
+    accounts_objects = {}
 
-    for name in names:
-        # ۱. ساخت مشتری با کدملی و شماره تماس تصادفی
-        national_id = f"00{random.randint(10000000, 99999999)}"
-        phone = f"0912{random.randint(1000000, 9999999)}"
-        # تاریخ عضویت تصادفی در ۱۰۰ روز گذشته
-        created_at = (datetime.now() - timedelta(days=random.randint(1, 100))).strftime("%Y-%m-%d %H:%M:%S")
+    print("👥 Creating customers and accounts...")
+    for name, nid, phone, acc_num, balance, status in users:
+        user_id = repo.add_customer(name, nid, phone)
 
-        cursor.execute('''
-                       INSERT INTO Users (name, national_id, phone, created_at)
-                       VALUES (?, ?, ?, ?)
-                       ''', (name, national_id, phone, created_at))
-        user_id = cursor.lastrowid
+        # 🎯 اصلاح حیاتی: دریافت همزمان هش و سالت برای هر کارت
+        pin_hash, salt = hash_pin("1234")
 
-        # ۲. ساخت حساب بانکی
-        account_number = f"603799{random.randint(1000000000, 9999999999)}"
-        # موجودی تصادفی بین ۱ تا ۵۰ میلیون تومان
-        balance = random.randint(10, 500) * 100000
+        repo.add_account(acc_num, user_id, pin_hash, salt, balance, status)
 
-        cursor.execute('''
-                       INSERT INTO Accounts (account_number, user_id, pin, salt, balance, status, created_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)
-                       ''', (account_number, user_id, default_pin_hash, default_salt, balance, "فعال", created_at))
+        # استخراج دیتای حساب و ساخت شیء Account برای ثبت تراکنش‌های بعدی
+        acc_data = repo.get_account_data(acc_num)
+        accounts_objects[acc_num] = Account(**acc_data)
 
-        # ۳. ساخت چند تراکنش اولیه برای پر شدن تاریخچه و داشبورد
-        for _ in range(random.randint(2, 5)):
-            tx_amount = random.randint(1, 5) * 100000
-            tx_type = random.choice(["واریز", "برداشت", "کارت به کارت"])
-            # تاریخ تراکنش تصادفی
-            tx_date = (datetime.now() - timedelta(days=random.randint(1, 30))).strftime("%Y-%m-%d %H:%M:%S")
+    # --- ۳. ثبت چند تراکنش تستی در تاریخچه ---
+    print("💸 Generating mock transactions...")
 
-            cursor.execute('''
-                           INSERT INTO Transactions (account_number, transaction_type, amount, resulting_balance,
-                                                     timestamp, description)
-                           VALUES (?, ?, ?, ?, ?, ?)
-                           ''', (account_number, tx_type, tx_amount, balance, tx_date,
-                                 f"تراکنش تستی ایجاد شده توسط سیستم ({tx_type})"))
+    acc_ali = accounts_objects["10000001"]
+    acc_maryam = accounts_objects["10000002"]
 
-    conn.commit()
-    conn.close()
+    # تراکنش اول: واریز به حساب علی
+    dep = Deposit(200000)
+    acc_ali.apply_transaction(dep)  # عبور از فیلتر امنیتی دامنه
+    repo.execute_atomic_operation(acc_ali, dep)
 
-    print("✅ دیتابیس با موفقیت با داده‌های استاندارد پر شد!")
-    print("🔹 پین‌کد تمام حساب‌های تولید شده: 1234")
+    # تراکنش دوم: برداشت از حساب علی
+    wd = Withdrawal(50000)
+    acc_ali.apply_transaction(wd)
+    repo.execute_atomic_operation(acc_ali, wd)
+
+    # تراکنش سوم: کارت به کارت از علی به مریم
+    t_out = TransferOut(100000, acc_maryam.account_number)
+    t_in = TransferIn(100000, acc_ali.account_number)
+
+    acc_ali.apply_transaction(t_out)
+    acc_maryam.apply_transaction(t_in)
+    repo.execute_atomic_transfer(acc_ali, acc_maryam, t_out, t_in)
+
+    print("\n✅ Database seeding completed successfully!")
+    print("   🔑 Admin Login -> User: admin | Pass: 12345")
+    print("   💳 Default PIN for all test accounts: 1234")
 
 
 if __name__ == "__main__":

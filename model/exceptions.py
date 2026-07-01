@@ -1,19 +1,19 @@
 class BankError(Exception):
-    """کلاس پایه برای تمام خطاهای دامنه سیستم بانکی"""
-    pass
-
-class InsufficientBalanceError(BankError):
-    """موجودی حساب برای انجام تراکنش کافی نیست"""
-    pass
-
-class InvalidPinError(BankError):
-    """رمز وارد شده نامعتبر است"""
+    """کلاس پایه برای تمام خطاهای منطقی سیستم بانکی"""
     pass
 
 class AccountBlockedError(BankError):
-    """حساب مسدود یا بسته است و اجازه تراکنش ندارد"""
+    """خطای مربوط به تلاش برای تراکنش روی حساب مسدود شده"""
     pass
 
-class AccountNotFoundError(BankError):
-    """حساب در پایگاه داده یافت نشد"""
+class AccountClosedError(BankError):
+    """خطای مربوط به تلاش برای تراکنش روی حساب بسته شده (ابطال شده)"""
+    pass
+
+class InsufficientBalanceError(BankError):
+    """خطای مربوط به ناکافی بودن موجودی برای برداشت یا انتقال"""
+    pass
+
+class InvalidPinError(BankError):
+    """خطای مربوط به اشتباه بودن رمز عبور (پین‌کد) حساب"""
     pass

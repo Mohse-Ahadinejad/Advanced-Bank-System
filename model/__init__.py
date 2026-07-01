@@ -1,5 +1,4 @@
-from .exceptions import BankError, InsufficientBalanceError, InvalidPinError, AccountBlockedError, AccountNotFoundError
-from .customer import Customer
+from .exceptions import BankError, InsufficientBalanceError, InvalidPinError, AccountBlockedError, AccountClosedError
 from .account import Account
-from .transaction import TransactionType, Deposit, Withdrawal, TransferOut, TransferIn
 from .repository import BankRepository
+from .transaction import TransactionType, Deposit, Withdrawal, TransferIn, TransferOut
